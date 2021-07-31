@@ -1,37 +1,53 @@
-// Imports the Google Cloud Video Intelligence library + Node's fs library
-const video = require('@google-cloud/video-intelligence').v1p2beta1;
 const fs = require('fs');
 const util = require('util');
 
+const {
+    Storage
+} = require('@google-cloud/storage');
+
+var labelVideo = function (label, index) {
+
+    var p1 = index % 2;
+    var p2 = (index + 1) % 2;
+    var command = "ffmpeg -y -i ./processing-" + p1 + ".mp4 -vf \"drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='" + label + "':fontcolor=white:fontsize=50:box=1:boxcolor=black@0.5:boxborderw=5:x=50:y=(h-text_h)/2:enable='between(t," + index + "," + (index + 1) + ")'\" -codec:a copy processing-" + p2 + ".mp4";
+
+    var result = require('child_process').execSync(command);
+
+    console.log(result);
+}
+
 // Creates a client
-const client = new video.VideoIntelligenceServiceClient();
+const storage = new Storage();
+
+var gcsFile = 'gs://video-intelligence/example-short.mp4';
+var frags = gcsFile.match(/[^\/]+/gi);
 
 (async function () {
 
-    var labelVideo = function (label, index) {
+    const options = {
+        destination: "./processing-0.mp4",
+    };
 
-        var p1 = index % 2;
-        var p2 = (index + 1) % 2;
-        var command = "ffmpeg -y -i ./processing-" + p1 + ".mp4 -vf \"drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='" + label + "':fontcolor=white:fontsize=50:box=1:boxcolor=black@0.5:boxborderw=5:x=50:y=(h-text_h)/2:enable='between(t," + index + "," + (index + 1) + ")'\" -codec:a copy processing-" + p2 + ".mp4";
+    // Downloads the video file as 'processing-0.mp4', needed for created labeled video
+    await storage.bucket(frags[1]).file(frags[2]).download(options);
 
-        var result = require('child_process').execSync(command);
+    // Imports the Google Cloud Video Intelligence library + Node's fs library
+    const video = require('@google-cloud/video-intelligence').v1p2beta1;
 
-        console.log(result);
-    }
+    // Creates a client
+    const client = new video.VideoIntelligenceServiceClient();
 
-    /**
-     * TODO(developer): Uncomment the following line before running the sample.
-     */
-    // const path = 'Local file to analyze, e.g. ./my-file.mp4';
-
-    // Reads a local video file and converts it to base64
-    // const readFile = util.promisify(fs.readFile);
-    //  const file = await readFile("./outside.MP4");
-    //  const inputContent = file.toString('base64');
+    /*
+    const path = 'Local file to analyze, e.g. ./my-file.mp4';
+    Reads a local video file and converts it to base64
+    const readFile = util.promisify(fs.readFile);
+    const file = await readFile("./outside.MP4");
+    const inputContent = file.toString('base64');
+    */
 
     // Constructs request
     const request = {
-        inputUri: 'gs://alexa-translation/single.mp4',
+        inputUri: gcsFile,
         features: ['LABEL_DETECTION'],
         videoContext: {
             "labelDetectionConfig": {
@@ -52,40 +68,37 @@ const client = new video.VideoIntelligenceServiceClient();
     // Gets annotations for video
     const labels = operationResult.annotationResults[0].frameLabelAnnotations;
 
-    var labelNew = [];
+    var annotations = [];
 
     labels.forEach(function (label, index) {
-
-        console.log("Item detected: " + label.entity.description);
-        console.log("Start Time: " + label.frames[0].timeOffset.seconds);
-        console.log("End Time: " + label.frames[label.frames.length - 1].timeOffset.seconds);
-        console.log("\n\r\n");
-        console.log(index);
 
         var startTime = label.frames[0].timeOffset.seconds;
         var endTime = label.frames[label.frames.length - 1].timeOffset.seconds;
 
         while (startTime != endTime) {
-
-            if (!!labelNew[startTime]) {
-                labelNew[startTime] = labelNew[startTime] + "\n" + label.entity.description;
+            if (!!annotations[startTime]) {
+                annotations[startTime] = annotations[startTime] + "\n" + label.entity.description;
             } else {
-                labelNew[startTime] = label.entity.description;
+                annotations[startTime] = label.entity.description;
             }
             startTime++;
         }
-
     });
 
 
-    // Annotate the video
+    console.log(annotations);
 
-    for (var i = 0; i < labelNew.length; i++) {
-        if (!!labelNew[i]) {
-            labelVideo(labelNew[i], i);
+    // Annotate the video
+    
+    
+    for (var i = 0; i < annotations.length; i++) {
+        if (!!annotations[i]) {
+            labelVideo(annotations[i], i);
         }
     }
+    
+    
 
-    console.log(labelNew);
+     
 
 })();
